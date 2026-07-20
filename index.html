@@ -295,6 +295,8 @@ const EMBEDDED_DATA = [{"id": "10100", "nom": "Adhésif", "type": "Souple", "fam
 let refs = [], movements = [];
 let currentId = null, scanId = null, scanPendingDelta = 0;
 let db = null;
+let firestoreReady = false;   // true une fois le 1er snapshot serveur reçu
+let localLoadedEmpty = false; // true si aucune donnée locale au démarrage
 
 /* ---------- Persistance ---------- */
 function loadLocal(){
@@ -302,32 +304,64 @@ function loadLocal(){
   if(raw){ try{ const d = JSON.parse(raw); refs = d.refs||[]; movements = d.movements||[];
     refs.forEach(r=>{ if(r.stockCible===undefined) r.stockCible = DEFAULT_CIBLE; });
     return; }catch(e){} }
+  // Pas de données locales : on part des données embarquées, SANS pousser
+  // vers Firestore (on attendra le 1er snapshot pour ne rien écraser).
   refs = JSON.parse(JSON.stringify(EMBEDDED_DATA));
   movements = [];
-  persist();
-}
-function persist(){
+  localLoadedEmpty = true;
   localStorage.setItem(LS_KEY, JSON.stringify({refs, movements}));
-  if(db) syncToFirestore();
+}
+/* persist() = enregistrement LOCAL + écriture Firestore.
+   On n'écrit vers Firestore que pour une vraie action utilisateur,
+   jamais au chargement (voir initFirebase). */
+function persist(pushRemote){
+  localStorage.setItem(LS_KEY, JSON.stringify({refs, movements}));
+  if(db && firestoreReady && pushRemote !== false) syncToFirestore();
 }
 async function initFirebase(){
   if(!FIREBASE_CONFIG) return;
-  await loadScript('https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js');
-  await loadScript('https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js');
-  firebase.initializeApp(FIREBASE_CONFIG);
-  db = firebase.firestore();
-  db.collection('stockEchantillons').doc('data').onSnapshot(snap=>{
-    if(!snap.exists && !snap.metadata.hasPendingWrites){ syncToFirestore(); return; }
-    if(snap.exists && !snap.metadata.hasPendingWrites){
+  try{
+    await loadScript('https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js');
+    await loadScript('https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js');
+    firebase.initializeApp(FIREBASE_CONFIG);
+    db = firebase.firestore();
+  }catch(e){ console.error('Firebase KO, mode local seul :', e); return; }
+
+  db.collection('stockEchantillons').doc('data').onSnapshot(
+    {includeMetadataChanges:false},
+    snap=>{
+      // Ignorer l'écho de nos propres écritures encore en attente,
+      // pour éviter les allers-retours.
+      if(snap.metadata.hasPendingWrites) return;
+
+      if(!snap.exists){
+        // La base est vide : on la remplit une seule fois avec ce qu'on a.
+        firestoreReady = true;
+        syncToFirestore();
+        return;
+      }
+      // Snapshot serveur valide : c'est la source de vérité, on l'applique.
       const d = snap.data();
-      refs = d.refs||refs; movements = d.movements||movements;
-      localStorage.setItem(LS_KEY, JSON.stringify({refs, movements}));
-      render(); if(scanId) renderScan();
-    }
-  });
+      if(Array.isArray(d.refs)){
+        refs = d.refs;
+        movements = d.movements || movements;
+        refs.forEach(r=>{ if(r.stockCible===undefined) r.stockCible = DEFAULT_CIBLE; });
+        localStorage.setItem(LS_KEY, JSON.stringify({refs, movements}));
+      }
+      firestoreReady = true;
+      render();
+      if(scanId) renderScan();
+    },
+    err=>{ console.error('Firestore onSnapshot error :', err.code, err.message);
+           toast('Sync indisponible ('+err.code+')'); }
+  );
 }
 function syncToFirestore(){
-  db.collection('stockEchantillons').doc('data').set({refs, movements, ts: Date.now()});
+  if(!db) return;
+  db.collection('stockEchantillons').doc('data')
+    .set({refs, movements, ts: Date.now()})
+    .catch(e=>{ console.error('Écriture Firestore refusée :', e.code, e.message);
+                toast('Écriture refusée ('+e.code+')'); });
 }
 function loadScript(src){ return new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=src; s.onload=res; s.onerror=rej; document.head.appendChild(s); }); }
 
