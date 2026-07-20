@@ -267,7 +267,14 @@ header h1 small{display:block;font-size:11px;font-weight:500;opacity:.75}
    config ici. Sinon l'app fonctionne en localStorage (mono-appareil).
    const FIREBASE_CONFIG = { apiKey:"...", authDomain:"...", projectId:"..." };
 ================================================== */
-const FIREBASE_CONFIG = null;
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyDBARer2Q_v4Jg1qS38Iyn0Ik7fawjs020",
+  authDomain: "stock-sample-8e458.firebaseapp.com",
+  projectId: "stock-sample-8e458",
+  storageBucket: "stock-sample-8e458.firebasestorage.app",
+  messagingSenderId: "68830361781",
+  appId: "1:68830361781:web:7c143abf714b36ace0a6fc"
+};
 const LS_KEY = 'lv_stock_echantillons_v1';
 const DEFAULT_MIN = 5;
 const DEFAULT_CIBLE = 20; // stock cible par défaut — à ajuster par référence
@@ -310,6 +317,7 @@ async function initFirebase(){
   firebase.initializeApp(FIREBASE_CONFIG);
   db = firebase.firestore();
   db.collection('stockEchantillons').doc('data').onSnapshot(snap=>{
+    if(!snap.exists && !snap.metadata.hasPendingWrites){ syncToFirestore(); return; }
     if(snap.exists && !snap.metadata.hasPendingWrites){
       const d = snap.data();
       refs = d.refs||refs; movements = d.movements||movements;
