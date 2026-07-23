@@ -649,11 +649,21 @@ async function openCamera(){
   document.getElementById('camView').classList.add('open');
   document.getElementById('camErr').classList.remove('show');
   document.getElementById('camWrap').style.display = '';
-  try{
-    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.js');
-    if(typeof jsQR === 'undefined') throw new Error('lib');
-  }catch(e){
-    return camError("Le module de lecture QR n'a pas pu être chargé. Vérifie ta connexion internet, puis réessaie.");
+  if(typeof jsQR === 'undefined'){
+    const sources = [
+      'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js',
+      'https://unpkg.com/jsqr@1.4.0/dist/jsQR.js',
+      'https://cdn.jsdelivr.net/gh/cozmo/jsQR@master/dist/jsQR.js'
+    ];
+    for(const src of sources){
+      try{
+        await loadScript(src);
+        if(typeof jsQR !== 'undefined'){ console.log('jsQR chargé depuis', src); break; }
+      }catch(e){ console.warn('Source QR indisponible :', src); }
+    }
+    if(typeof jsQR === 'undefined'){
+      return camError("Le module de lecture QR n'a pas pu être chargé (toutes les sources ont échoué).\n\nTu peux quand même scanner l'étiquette avec l'appareil photo natif de ton téléphone : le QR ouvrira directement la bonne fiche.");
+    }
   }
   startCamStream();
 }
